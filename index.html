@@ -1,25 +1,36 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="style.css" />
-  <title>Moldura</title>
-</head>
-<body>
+let currentFacingMode = "user";
 
-  <div id="camera-container">
-    <video id="camera" autoplay playsinline></video>
-    <img id="frame" src="moldura.png" />
-  </div>
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: currentFacingMode },
+    audio: false
+  });
+  const video = document.getElementById("camera");
+  video.srcObject = stream;
+}
 
-  <div id="buttons">
-    <button id="flip">Virar Câmera</button>
-    <button id="capture">Salvar Foto</button>
-  </div>
+document.getElementById("flip").addEventListener("click", () => {
+  currentFacingMode = (currentFacingMode === "user") ? "environment" : "user";
+  startCamera();
+});
 
-  <canvas id="canvas" style="display:none;"></canvas>
+document.getElementById("capture").addEventListener("click", () => {
+  const video = document.getElementById("camera");
+  const frame = document.getElementById("frame");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
 
-  <script src="script.js"></script>
-</body>
-</html>
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+
+  const img = canvas.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = img;
+  a.download = "foto.png";
+  a.click();
+});
+
+startCamera();
