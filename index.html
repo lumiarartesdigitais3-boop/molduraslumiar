@@ -1,25 +1,172 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="style.css" />
-  <title>Moldura</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Moldura - Câmera</title>
+<style>
+  :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+  html,body{height:100%;margin:0;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  #app{width:100%;max-width:900px;margin:0 auto;padding:12px;box-sizing:border-box}
+  .viewer{position:relative;width:100%;aspect-ratio:9/16;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(1)}
+  canvas{display:none}
+  .frame{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;background-size:cover;background-position:center;mix-blend-mode:normal}
+  .controls{display:flex;gap:8px;margin-top:12px;justify-content:center;flex-wrap:wrap}
+  button{padding:10px 14px;border-radius:10px;border:0;background:#ff7a59;color:#fff;font-weight:600}
+  .big{padding:14px 18px;font-size:16px}
+  .small{padding:8px 10px;font-size:14px;background:#444}
+  .hidden{display:none}
+  .note{font-size:13px;color:#ddd;text-align:center;margin-top:10px}
+</style>
 </head>
 <body>
-
-  <div id="camera-container">
-    <video id="camera" autoplay playsinline></video>
-    <img id="frame" src="moldura.png" />
+<div id="app">
+  <div class="viewer" id="viewer">
+    <video id="video" autoplay playsinline></video>
+    <div id="frame" class="frame"></div>
+    <canvas id="canvas"></canvas>
   </div>
 
-  <div id="buttons">
-    <button id="flip">Virar Câmera</button>
-    <button id="capture">Salvar Foto</button>
+  <div class="controls">
+    <button id="openBtn" class="big">Abrir câmera</button>
+    <button id="switchBtn" class="small hidden">Trocar câmera</button>
+    <button id="captureBtn" class="big" disabled>Tirar foto</button>
+    <button id="saveBtn" class="small hidden">Salvar / Compartilhar</button>
   </div>
 
-  <canvas id="canvas" style="display:none;"></canvas>
+  <div class="note" id="note">
+    Se não abrir automaticamente, toque em "Abrir câmera".
+  </div>
+</div>
 
-  <script src="script.js"></script>
+<script>
+(async function(){
+  // Moldura no mesmo diretório do index.html
+  const FRAME_URL = "frame.png";
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const frameDiv = document.getElementById('frame');
+  const openBtn = document.getElementById('openBtn');
+  const captureBtn = document.getElementById('captureBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const switchBtn = document.getElementById('switchBtn');
+  const note = document.getElementById('note');
+
+  let stream = null;
+  let currentDeviceId = null;
+  let videoDevices = [];
+  let lastImageBlob = null;
+
+  frameDiv.style.backgroundImage = `url(${FRAME_URL})`;
+
+  async function updateDevices(){
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      videoDevices = devices.filter(d=>d.kind==="videoinput");
+      switchBtn.classList.toggle("hidden", videoDevices.length < 2);
+    } catch(e){
+      console.warn(e);
+      switchBtn.classList.add("hidden");
+    }
+  }
+
+  async function startCamera(constraints = { video: { facingMode: "environment" } }){
+    stopStream();
+    try{
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      const track = stream.getVideoTracks()[0];
+      currentDeviceId = track.getSettings().deviceId;
+
+      const facing = track.getSettings().facingMode;
+      video.style.transform = facing === "user" ? "scaleX(-1)" : "scaleX(1)";
+
+      openBtn.textContent = "Câmera aberta";
+      openBtn.disabled = true;
+      captureBtn.disabled = false;
+
+      updateDevices();
+    }catch(err){
+      note.textContent = "Erro ao abrir câmera: " + err.message;
+    }
+  }
+
+  function stopStream(){
+    if(stream){
+      stream.getTracks().forEach(t=>t.stop());
+      stream = null;
+    }
+  }
+
+  function capturePhoto(){
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if(!w || !h) return;
+
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+
+    const mirrored = getComputedStyle(video).transform.includes("-1");
+    if(mirrored){
+      ctx.save();
+      ctx.translate(w,0);
+      ctx.scale(-1,1);
+      ctx.drawImage(video,0,0,w,h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(video,0,0,w,h);
+    }
+
+    const img = new Image();
+    img.src = FRAME_URL;
+    img.onload = () => {
+      ctx.drawImage(img,0,0,w,h);
+      canvas.toBlob(blob => {
+        lastImageBlob = blob;
+        saveBtn.classList.remove("hidden");
+        note.textContent = "Foto capturada!";
+      }, "image/jpeg", 0.95);
+    };
+  }
+
+  async function saveOrShare(){
+    if(!lastImageBlob) return;
+
+    const file = new File([lastImageBlob], `foto_moldura.jpg`, {type:"image/jpeg"});
+
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file], title:"Minha foto", text:"Foto com moldura"});
+        return;
+      }catch{}
+    }
+
+    const url = URL.createObjectURL(lastImageBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "foto_moldura.jpg";
+    a.click();
+  }
+
+  async function switchCamera(){
+    await updateDevices();
+    if(videoDevices.length < 2) return;
+
+    const idx = videoDevices.findIndex(d => d.deviceId === currentDeviceId);
+    const next = videoDevices[(idx + 1) % videoDevices.length];
+    startCamera({video:{deviceId:{exact:next.deviceId}}});
+  }
+
+  openBtn.onclick = () => startCamera();
+  captureBtn.onclick = capturePhoto;
+  saveBtn.onclick = saveOrShare;
+  switchBtn.onclick = switchCamera;
+
+  updateDevices();
+})();
+</script>
 </body>
 </html>
